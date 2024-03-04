@@ -1,0 +1,181 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 3.0"
+    }
+  }
+}
+
+# Configure the AWS Provider
+provider "aws" {
+  region = "ap-northeast-1"
+}
+
+resource "aws_vpc" "myvpc" {
+  cidr_block       = "10.0.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "myvpc"
+  }
+}
+
+resource "aws_subnet" "publicsubnet" {
+  vpc_id     = aws_vpc.myvpc.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "ap-northeast-1a"
+
+  tags = {
+    Name = "publicsubnet"
+  }
+}
+
+resource "aws_subnet" "privatesubnet" {
+  vpc_id     = aws_vpc.myvpc.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-northeast-1b"
+
+  tags = {
+    Name = "privatesubnet"
+  }
+}
+
+resource "aws_internet_gateway" "myigw" {
+  vpc_id = aws_vpc.myvpc.id
+
+  tags = {
+    Name = "myigw"
+  }
+}
+
+resource "aws_route_table" "publicroutetable" {
+  vpc_id = aws_vpc.myvpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.myigw.id
+  }
+
+  tags = {
+    Name = "publicroutetable"
+  }
+}
+
+resource "aws_main_route_table_association" "publicroutetableassoiation" {
+  vpc_id         = aws_vpc.myvpc.id
+  route_table_id = aws_route_table.publicroutetable.id
+}
+
+resource "aws_eip" "myepi" {
+  vpc      = true
+}
+
+resource "aws_nat_gateway" "mynat" {
+  allocation_id = aws_eip.myepi.id
+  subnet_id     = aws_subnet.publicsubnet.id
+
+  tags = {
+    Name = "mynat"
+
+  }
+}
+
+resource "aws_route_table" "privateroutetable" {
+  vpc_id = aws_vpc.myvpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.mynat.id
+  }
+
+  tags = {
+    Name = "privateroutetable"
+  }
+}
+
+resource "aws_main_route_table_association" "privateroutetableassociation" {
+  vpc_id         = aws_vpc.myvpc.id
+  route_table_id = aws_route_table.privateroutetable.id
+}
+
+
+resource "aws_security_group" "publicsg" {
+  name        = "publicsg"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.myvpc.id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 0
+    to_port          = 65535
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+
+  tags = {
+    Name = "publicsg"
+  }
+}
+
+resource "aws_security_group" "privatesg" {
+  name        = "privatesg"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.myvpc.id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 0
+    to_port          = 65535
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+
+  tags = {
+    Name = "privatesg"
+  }
+}
+
+resource "aws_instance" "pub_instance" {
+  ami                                             = "ami-09fc42818127afd5f"
+  instance_type                                   = "t2.micro"
+  availability_zone                               = "ap-northeast-1a"
+  associate_public_ip_address                     = "true"
+  vpc_security_group_ids                          = [aws_security_group.pubsg.id]
+  subnet_id                                       = aws_subnet.pubsub.id 
+  key_name                                        = "tf_KEY"
+  
+    tags = {
+    Name = "pub WEBSERVER"
+  }
+}
+
+resource "aws_instance" "pri_instance" {
+  ami                                             = "ami-09fc42818127afd5f"
+  instance_type                                   = "t2.micro"
+  availability_zone                               = "ap-northeast-1b"
+  associate_public_ip_address                     = "false"
+  vpc_security_group_ids                          = [aws_security_group.prisg.id]
+  subnet_id                                       = aws_subnet.prisub.id 
+  key_name                                        = "tf_KEY"
+  
+    tags = {
+    Name = "pri APPSERVER"
+  }
+}
